@@ -70,7 +70,7 @@ def generateEveryDayCalendarData(GmailList):
         store = file.Storage('token.json')  # 如果换了证书的json文件，需要是删除token.json
         creds = store.get()
         if not creds or creds.invalid:
-            flow = client.flow_from_clientsecrets('./ZhangXueyuan_Administrator.json', SCOPES)
+            flow = client.flow_from_clientsecrets('./Administrator.json', SCOPES)
             creds = tools.run_flow(flow, store)
         service = build('calendar', 'v3', http=creds.authorize(Http()))
         TokyoStartTime = 'T00:00:00+09:00' #东京时间
