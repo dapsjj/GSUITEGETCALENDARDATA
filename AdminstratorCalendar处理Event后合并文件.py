@@ -11,7 +11,19 @@ import re
 import csv
 import configparser
 
+'''
+张老师的Gsuite管理员登录:
+https://support.google.com/a/answer/6103110?hl=ja
 
+GSuite账户: 02200878    
+02200878@c.tre-inc.com
+password: tJ7nybAtrbY386k
+
+第一次跑代码用这个账号去允许
+管理员邮箱: zhang_xueyuan@c.tre-inc.com
+password:Zhangxueyuan878
+
+'''
 
 SCOPES = None
 CalendarPath = None
@@ -21,6 +33,7 @@ HowManyDays = None
 EventTextName = None
 CreateTextName = None
 allEvents = None
+summary = None
 TokyoStartTime = None
 UTCStartTime = None
 UTCEndTime = None
@@ -580,7 +593,6 @@ def SaveEveryDayCalendarDataUsetimeMin_timeMax(paraEventDateList, paraGmailList)
                 List_Root_And_Branch = []  # Root节点和Branch节点拼接到一起
                 EventStartDate = paraEventDateList[i]
                 EventEndDate = paraEventDateList[i + 1]
-                # print(EventStartDate, EventEndDate)
                 Need_To_Save_List = []  # 保存某一天的文本数据
                 for calendarId in paraGmailList:
                     store = file.Storage('./token.json')  # 如果换了证书的json文件，需要是删除token.json
@@ -832,7 +844,7 @@ def SaveEveryDayCalendarDataUseCreateTime(paraManyDays, paraGmailList):
     '''
     try:
         if paraManyDays and paraGmailList:
-            for x in range(paraManyDays, 1, -1):
+            for x in range(int(paraManyDays), 1, -1):
                 if x > 1:
                     TwoDaysAgoDate = datetime.datetime.now() - datetime.timedelta(days=x)  # 前天日期
                     TwoDaysAgoDate = TwoDaysAgoDate.strftime('%Y-%m-%d')
@@ -854,6 +866,7 @@ def MergeEventTimeData(paraEventDateList):
     '''
     try:
         allEventDataList = []
+        removeFeleteDataList = [] #去掉删除事件的List
         SpecifiedCSVList = [] #保存邮箱，事件标题，事件开始日期，事件开始事件，事件结束日期，事件结束时间,是否可见的List
         for everyDate in paraEventDateList:
             if os.path.exists(CalendarPath + everyDate + EventTextName + '.txt'):
@@ -896,7 +909,11 @@ def MergeEventTimeData(paraEventDateList):
         # save_data_to_csv(CalendarPath, paraEventDateList[-2], allEventDataList)
 
         # 保存全部80列到txt,这部分的数据是不做差分的，因为使用事件的开始和结束日期获取的，不涉及创建时间和更新时间
-        save_txt_to_disk(CalendarPath, 'allEvents', allEventDataList)
+        for item in allEventDataList:
+            if item[13] != 'cancelled': #event中是删除的事件不保存到allEvents.txt中
+                removeFeleteDataList.append(item)
+        removeFeleteDataList = [item[:-1] + [removeBlank(item[-1])] for item in removeFeleteDataList]
+        save_txt_to_disk(CalendarPath, allEvents, removeFeleteDataList)
 
     except Exception as ex:
         logger.error("Call method MergeEventTimeData() error!")
@@ -910,6 +927,7 @@ def MergeCreateTimeData(paraHowManyDays):
     :return: 
     '''
     try:
+        paraHowManyDays = int(paraHowManyDays)
         if paraHowManyDays>1:
             CreateDateList = [] #事件创建或者更新时间的List
             SummaryDataList = [] #全部数据的List,即allEvents.txt和每天的create.txt的合集
@@ -922,8 +940,8 @@ def MergeCreateTimeData(paraHowManyDays):
                     CreateDateList.append(Yesterday)
 
             #如果存在summary.txt,则把summary.txt中的所有内容放到SummaryDataList中
-            if os.path.exists(CalendarPath + 'summary' + '.txt'):
-                with open(CalendarPath + 'summary' + '.txt', 'r', encoding='utf-8') as f:
+            if os.path.exists(CalendarPath + summary + '.txt'):
+                with open(CalendarPath + summary + '.txt', 'r', encoding='utf-8') as f:
                     lines = f.readlines()
                     for line in lines:
                         if not line:  # 如果line是空
@@ -961,14 +979,14 @@ def MergeCreateTimeData(paraHowManyDays):
                                 if row[13] != 'cancelled':
                                     SummaryDataList.append(row)
                             else:  # 如果存放全部数据的List不是空
-                                iCalUIDList = [x[43] for x in SummaryDataList]
+                                # iCalUIDList = [x[43] for x in SummaryDataList]
                                 idList = [x[12] for x in SummaryDataList]
                                 if row[13] != 'cancelled':  # 不是删除的事件
-                                    #iCalUID有可能会重复,所以应该加上id,这样可以避免主键冲突
-                                    if row[43] not in iCalUIDList and row[12] not in idList:  #没有这个iCalUID和id
+                                    #iCalUID有可能会重复,所以用id,这样可以避免主键冲突
+                                    if row[12] not in idList:  #没有这个id
                                         SummaryDataList.append(row)
                                     else:  # 有这个id(iCalUID)
-                                        findIndex = iCalUIDList.index(row[12])
+                                        findIndex = idList.index(row[12])
                                         # 删除原来的id对应的数据,插入该id对应的新数据(status='tentative' or status='confirmed')
                                         del SummaryDataList[findIndex]
                                         SummaryDataList.append(row)
@@ -977,14 +995,8 @@ def MergeCreateTimeData(paraHowManyDays):
                                         delfindIndex = idList.index(row[12])
                                         # 删除原来的id(iCalUID)对应的数据
                                         del SummaryDataList[delfindIndex]
-
-            save_txt_to_disk(CalendarPath, 'summary', SummaryDataList)
-
-
-
-
-
-
+            SummaryDataList = [item[:-1] + [removeBlank(item[-1])] for item in SummaryDataList]
+            save_txt_to_disk(CalendarPath, summary, SummaryDataList)
 
 
     except Exception as ex:
@@ -1006,6 +1018,7 @@ def read_dateConfig_file_set_parameter():
     global EventTextName
     global CreateTextName
     global allEvents
+    global summary
     global TokyoStartTime
     global UTCStartTime
     global UTCEndTime
@@ -1023,6 +1036,7 @@ def read_dateConfig_file_set_parameter():
             EventTextName = conf.get("EventTextName", "EventTextName")
             CreateTextName = conf.get("CreateTextName", "CreateTextName")
             allEvents = conf.get("allEvents", "allEvents")
+            summary = conf.get("summary", "summary")
             TokyoStartTime = conf.get("TokyoStartTime", "TokyoStartTime")
             UTCStartTime = conf.get("UTCStartTime", "UTCStartTime")
             UTCEndTime = conf.get("UTCEndTime", "UTCEndTime")
@@ -1052,14 +1066,11 @@ if __name__ == '__main__':
 
     gmailList = getcalendarIdList()
     Event_Date_List = getEveryDay(EventTimeMin, EventTimeMax)  #获取事件的开始到结束时间的List
-    SaveEveryDayCalendarDataUsetimeMin_timeMax(Event_Date_List, gmailList) #保存事件的开始和结束时间对应的数据
-    SaveEveryDayCalendarDataUseCreateTime(HowManyDays, gmailList) #保存创建事件的时间在某段范围内的数据
+    # SaveEveryDayCalendarDataUsetimeMin_timeMax(Event_Date_List, gmailList) #保存事件的开始和结束时间对应的数据
+    # SaveEveryDayCalendarDataUseCreateTime(HowManyDays, gmailList) #保存创建事件的时间在某段范围内的数据
     MergeEventTimeData(Event_Date_List) #先合并事件开始时间和结束时间对应的数据
     # 保存差分数据
     MergeCreateTimeData(HowManyDays) #再合并创建时间(最多29天)在某段时间内的数据
-    # 保存差分数据
-    # Created_Updated_AllDateList = getEveryDay(AllDataToCSVForStart, AllDataToCSVForEnd)
-    # generateSummaryDate(Created_Updated_AllDateList)
     time_end = datetime.datetime.now()
     end = time.time()
     logger.info("Program end,now time is:" + str(time_end))
