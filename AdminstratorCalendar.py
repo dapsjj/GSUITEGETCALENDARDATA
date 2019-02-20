@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 from __future__ import print_function
 import time
 import logging
@@ -10,7 +13,6 @@ import socket
 import re
 import csv
 import configparser
-
 
 SCOPES = None
 CalendarPath = None
@@ -812,10 +814,10 @@ def SaveEveryDayCalendarDataUsetimeMin_timeMax(paraEventDateList, paraGmailList)
                     else:  # 是全天事件,则事件的结束时间只有年月日
                         temp_eventEndDate = item[32][0:10]  # 取开始时间的年月日
                     if (temp_eventStartDate >= EventStartDate and temp_eventStartDate <= EventEndDate) or (
-                            temp_eventEndDate >= EventStartDate and temp_eventEndDate <= EventEndDate):  # 如果事件的开始和结束时间超过指定的开始和结束时间,就删除
+                            temp_eventEndDate >= EventStartDate and temp_eventEndDate < EventEndDate):  # 如果事件的开始和结束时间超过指定的开始和结束时间,就删除.连续事件如果用temp_eventEndDate <= EventEndDate，则在结束的时候会连续出现2次，因此改成temp_eventEndDate < EventEndDate
                         Need_To_Save_List.append(item)
                 if Need_To_Save_List:
-                    print(EventStartDate, EventEndDate)
+                    # print(EventStartDate, EventEndDate)
                     save_txt_to_disk(CalendarPath, EventStartDate + EventTextName, Need_To_Save_List)
 
     except Exception as ex:
@@ -848,13 +850,12 @@ def SaveEveryDayCalendarDataUseCreateTime(paraManyDays, paraGmailList):
 def MergeEventTimeData(paraEventDateList):
     '''
     :param paraEventDateList: 事件开始时间的列表
-    :param paraHowManyDays: 需要获取创建日期持续多少天内的数据
     :return: 
     '''
     try:
         allEventDataList = []
-        removeFeleteDataList = [] #去掉删除事件的List
-        SpecifiedCSVList = [] #保存邮箱，事件标题，事件开始日期，事件开始事件，事件结束日期，事件结束时间,是否可见的List
+        AllColumnsList = [] #保存查分后全部80列的list
+        SpecifiedCSVList = [] #保存差分后指定列event的list
         for everyDate in paraEventDateList:
             if os.path.exists(CalendarPath + everyDate + EventTextName + '.txt'):
                 with open(CalendarPath + everyDate + EventTextName + '.txt', 'r', encoding='utf-8') as f:
@@ -864,7 +865,7 @@ def MergeEventTimeData(paraEventDateList):
                             continue
                         else:
                             row_list = line.split(" ")
-                            allEventDataList.append(row_list)
+                            allEventDataList.append(row_list) #没经过任何处理的每天的event文本的集合
 
         for item in allEventDataList:
             if item[29] == '_':  # 不是全天事件,则事件的开始时间有'年月日'和'时分秒'
@@ -881,8 +882,35 @@ def MergeEventTimeData(paraEventDateList):
                 eventEndDate = item[32][0:10]  # 取开始时间的年月日
                 eventEndtTime = ''
 
-            if item[13] != 'cancelled':
-                SpecifiedCSVList.append([removeBlank(item[79]), item[17], eventStartDate, eventStartTime, eventEndDate, eventEndtTime, item[42]])
+
+            if not AllColumnsList: #如果存放全部数据的List是空
+                if item[13] != 'cancelled':
+                    SpecifiedCSVList.append([removeBlank(item[79]), item[17], eventStartDate, eventStartTime, eventEndDate, eventEndtTime, item[42]])
+                    AllColumnsList.append(item)
+            else:  # 如果存放全部数据的List不是空
+                idList = [x[12] for x in AllColumnsList]
+                if item[13] != 'cancelled':  # 不是删除的事件
+                    # iCalUID有可能会重复,所以用id,这样可以避免主键冲突
+                    if item[12] not in idList:  # 没有这个id
+                        SpecifiedCSVList.append([removeBlank(item[79]), item[17], eventStartDate, eventStartTime, eventEndDate, eventEndtTime, item[42]])
+                        AllColumnsList.append(item)
+                    else:  # 有这个id(iCalUID)
+                        findIndex = idList.index(item[12])
+                        # 删除原来的id对应的数据,插入该id对应的新数据(status='tentative' or status='confirmed')
+                        del AllColumnsList[findIndex]
+                        del SpecifiedCSVList[findIndex]
+                        SpecifiedCSVList.append([removeBlank(item[79]), item[17], eventStartDate, eventStartTime, eventEndDate, eventEndtTime, item[42]])
+                        AllColumnsList.append(item)
+                else:  # 是删除的事件
+                    if item[12] in idList:
+                        delfindIndex = idList.index(item[12])
+                        # 删除原来的id(iCalUID)对应的数据
+                        del AllColumnsList[delfindIndex]
+                        del SpecifiedCSVList[findIndex]
+
+        # 保存全部80列差分后的events数据到CSV
+        AllColumnsList = [item[:-1] + [removeBlank(item[-1])] for item in AllColumnsList] #处理最后一列的换行符
+        save_data_to_csv(CalendarPath, allEvents, AllColumnsList)
 
         #保存指定列的数据到CSV
         with open(CalendarPath + paraEventDateList[-2] + '_SpecifiedColumns.csv', "w", newline='',encoding="utf-8") as fo:
@@ -891,16 +919,9 @@ def MergeEventTimeData(paraEventDateList):
             writer.writerows(title)
             writer.writerows(SpecifiedCSVList)
 
-        #保存全部80列到CSV
-        # allEventDataList = [item[:-1] + [removeBlank(item[-1])] for item in allEventDataList]
-        # save_data_to_csv(CalendarPath, paraEventDateList[-2], allEventDataList)
+        #保存全部80列到txt,这部分的数据是查分后的
+        save_txt_to_disk(CalendarPath, allEvents, AllColumnsList)
 
-        # 保存全部80列到txt,这部分的数据是不做差分的，因为使用事件的开始和结束日期获取的，不涉及创建时间和更新时间
-        for item in allEventDataList:
-            if item[13] != 'cancelled': #event中是删除的事件不保存到allEvents.txt中
-                removeFeleteDataList.append(item)
-        removeFeleteDataList = [item[:-1] + [removeBlank(item[-1])] for item in removeFeleteDataList]
-        save_txt_to_disk(CalendarPath, allEvents, removeFeleteDataList)
 
     except Exception as ex:
         logger.error("Call method MergeEventTimeData() error!")
@@ -985,7 +1006,6 @@ def MergeCreateTimeData(paraHowManyDays):
             SummaryDataList = [item[:-1] + [removeBlank(item[-1])] for item in SummaryDataList]
             save_txt_to_disk(CalendarPath, summary, SummaryDataList)
 
-
     except Exception as ex:
         logger.error("Call method MergeCreateTimeData() error!")
         raise ex
@@ -1044,11 +1064,11 @@ if __name__ == '__main__':
     read_dateConfig_file_set_parameter()
     gmailList = getcalendarIdList()
     Event_Date_List = getEveryDay(EventTimeMin, EventTimeMax)  #获取事件的开始到结束时间的List
-    # SaveEveryDayCalendarDataUsetimeMin_timeMax(Event_Date_List, gmailList) #保存事件的开始和结束时间对应的数据
+    SaveEveryDayCalendarDataUsetimeMin_timeMax(Event_Date_List, gmailList) #保存事件的开始和结束时间对应的数据
     # SaveEveryDayCalendarDataUseCreateTime(HowManyDays, gmailList) #保存创建事件的时间在某段范围内的数据
     MergeEventTimeData(Event_Date_List) #先合并事件开始时间和结束时间对应的数据
     # 保存差分数据
-    MergeCreateTimeData(HowManyDays) #再合并创建时间(最多29天)在某段时间内的数据
+    # MergeCreateTimeData(HowManyDays) #再合并创建时间(最多29天)在某段时间内的数据
     time_end = datetime.datetime.now()
     end = time.time()
     logger.info("Program end,now time is:" + str(time_end))
