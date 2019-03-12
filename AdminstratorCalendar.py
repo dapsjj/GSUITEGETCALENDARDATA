@@ -14,6 +14,10 @@ import re
 import csv
 import configparser
 
+
+CalendarIdListFile = None
+TokenFile = None
+CalendarAdministratorFile = None
 SCOPES = None
 CalendarPath = None
 EventTimeMin = None
@@ -70,7 +74,7 @@ def getcalendarIdList():
     '''
     try:
         txt_config_list = []
-        fileName = r"./CalendarIdList.txt"
+        fileName = CalendarIdListFile
         with open(fileName, 'r', encoding='utf-8') as txtConfig:
             lines = txtConfig.readlines()
             for line in lines:
@@ -178,10 +182,10 @@ def generateEveryDayCalendarData(GmailList, paraTwoDaysAgoDate, paraYesterday):
     '''
     try:
         if GmailList:
-            store = file.Storage('./token.json')  # 如果换了证书的json文件，需要是删除token.json
+            store = file.Storage(TokenFile)  # 如果换了证书的json文件，需要是删除token.json
             creds = store.get()
             if not creds or creds.invalid:
-                flow = client.flow_from_clientsecrets('./Calendar_Administrator.json', SCOPES)
+                flow = client.flow_from_clientsecrets(CalendarAdministratorFile, SCOPES)
                 creds = tools.run_flow(flow, store)
             service = build('calendar', 'v3', http=creds.authorize(Http()))
             UTCStartTime = 'T15:00:00.000Z'  # UTC时间
@@ -584,10 +588,10 @@ def SaveEveryDayCalendarDataUsetimeMin_timeMax(paraEventDateList, paraGmailList)
                 EventEndDate = paraEventDateList[i + 1]
                 Need_To_Save_List = []  # 保存某一天的文本数据
                 for calendarId in paraGmailList:
-                    store = file.Storage('./token.json')  # 如果换了证书的json文件，需要是删除token.json
+                    store = file.Storage(TokenFile)  # 如果换了证书的json文件，需要是删除token.json
                     creds = store.get()
                     if not creds or creds.invalid:
-                        flow = client.flow_from_clientsecrets('./Calendar_Administrator.json', SCOPES)
+                        flow = client.flow_from_clientsecrets(CalendarAdministratorFile, SCOPES)
                         creds = tools.run_flow(flow, store)
                     service = build('calendar', 'v3', http=creds.authorize(Http()))
                     events_result = service.events().list(calendarId=calendarId,
@@ -827,7 +831,7 @@ def SaveEveryDayCalendarDataUsetimeMin_timeMax(paraEventDateList, paraGmailList)
 
 def SaveEveryDayCalendarDataUseCreateTime(paraManyDays, paraGmailList):
     '''
-    :param paraManyDays: 需要获取创建日期持续多少天内的数据
+    :param paraManyDays: 需要获取创建日期持续多少天内的数据,如果paraManyDays=2则获取昨天创建或更新的数据,如果paraManyDays=3,则获取前天和昨天创建或更新的数据,paraManyDays>1才有意义
     :param paraGmailList: 邮箱列表
     :return: 无
     '''
@@ -913,7 +917,7 @@ def MergeEventTimeData(paraEventDateList):
         save_data_to_csv(CalendarPath, allEvents, AllColumnsList)
 
         #保存指定列的数据到CSV
-        with open(CalendarPath + paraEventDateList[-2] + '_SpecifiedColumns.csv', "w", newline='',encoding="utf-8") as fo:
+        with open(CalendarPath + paraEventDateList[0] + ' to ' + paraEventDateList[-2] + '_SpecifiedColumns.csv', "w", newline='',encoding="utf-8") as fo:
             title = [['calendarId', 'summary', 'eventStartDate', 'eventStartTime', 'eventEndDate', 'eventEndtTime', 'visibility']]
             writer = csv.writer(fo)
             writer.writerows(title)
@@ -1017,6 +1021,9 @@ def read_dateConfig_file_set_parameter():
     '''
     读dateConfig.ini,获取事件的开始时间、事件的结束时间、创建或者更新时间在多少天内的数据(最多29天)、要保存的文件夹的路径
     '''
+    global CalendarIdListFile
+    global TokenFile
+    global CalendarAdministratorFile
     global SCOPES
     global CalendarPath
     global EventTimeMin
@@ -1035,6 +1042,9 @@ def read_dateConfig_file_set_parameter():
         try:
             conf = configparser.ConfigParser()
             conf.read(os.path.join(os.path.dirname(__file__), "dateConfig.ini"), encoding="utf-8-sig")
+            CalendarIdListFile = conf.get("CalendarIdListFile", "CalendarIdListFile")
+            TokenFile = conf.get("TokenFile", "TokenFile")
+            CalendarAdministratorFile = conf.get("CalendarAdministratorFile", "CalendarAdministratorFile")
             SCOPES = conf.get("SCOPES", "SCOPES")
             CalendarPath = conf.get("CalendarPath", "CalendarPath")
             EventTimeMin = conf.get("EventTimeMin", "EventTimeMin")
@@ -1065,10 +1075,10 @@ if __name__ == '__main__':
     gmailList = getcalendarIdList()
     Event_Date_List = getEveryDay(EventTimeMin, EventTimeMax)  #获取事件的开始到结束时间的List
     SaveEveryDayCalendarDataUsetimeMin_timeMax(Event_Date_List, gmailList) #保存事件的开始和结束时间对应的数据
-    # SaveEveryDayCalendarDataUseCreateTime(HowManyDays, gmailList) #保存创建事件的时间在某段范围内的数据
+    SaveEveryDayCalendarDataUseCreateTime(HowManyDays, gmailList) #保存创建事件的时间在某段范围内的数据
     MergeEventTimeData(Event_Date_List) #先合并事件开始时间和结束时间对应的数据
     # 保存差分数据
-    # MergeCreateTimeData(HowManyDays) #再合并创建时间(最多29天)在某段时间内的数据
+    MergeCreateTimeData(HowManyDays) #再合并创建时间(最多29天)在某段时间内的数据
     time_end = datetime.datetime.now()
     end = time.time()
     logger.info("Program end,now time is:" + str(time_end))
