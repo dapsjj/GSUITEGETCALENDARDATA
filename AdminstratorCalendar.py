@@ -6,19 +6,25 @@ import time
 import logging
 import os
 import datetime
-from googleapiclient.discovery import build
 from httplib2 import Http
 from oauth2client import file, client, tools
 import socket
+import pickle
 import re
 import csv
 import configparser
+import os.path
+from googleapiclient.discovery import build
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.auth.transport.requests import Request
 
 
 CalendarIdListFile = None
-TokenFile = None
+CalendarTokenFile = None
+AdminDirectoryAPITokenFile = None
 CalendarAdministratorFile = None
-SCOPES = None
+CalendarSCOPES = None
+AdminDirectoryAPISCOPES = None
 CalendarPath = None
 EventTimeMin = None
 EventTimeMax = None
@@ -69,6 +75,53 @@ def removeBlank(MyString):
 
 
 def getcalendarIdList():
+    gmailList = []
+    creds = None
+    if os.path.exists(AdminDirectoryAPITokenFile):
+        with open(AdminDirectoryAPITokenFile, 'rb') as token:
+            creds = pickle.load(token)
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        else:
+            flow = InstalledAppFlow.from_client_secrets_file(CalendarTokenFile, AdminDirectoryAPISCOPES)
+            creds = flow.run_local_server()
+        with open(AdminDirectoryAPITokenFile, 'wb') as token:
+            pickle.dump(creds, token)
+    service = build('admin', 'directory_v1', credentials=creds)
+    results = service.users().list(customer='my_customer',maxResults=500,orderBy='email').execute()
+    users = results.get('users', [])
+    nextPageToken = results.get('nextPageToken', {})
+    if not users:
+        logger.error("No users in the domain.")
+    else:
+        for user in users:
+            gmailList.append(user['primaryEmail'])
+            # print(u'{0} {1}'.format(user['primaryEmail'],user['name']['fullName']))
+
+
+    loopFlag = True
+    while loopFlag: #Loop every page's data for gmail address
+        if nextPageToken:
+            results = service.users().list(customer='my_customer', pageToken = nextPageToken, maxResults=500, orderBy='email').execute()
+            users = results.get('users', [])
+            if not users:
+                logger.error("No users in the domain.")
+            else:
+                for user in users:
+                    gmailList.append(user['primaryEmail'])
+                    # print(u'{0} {1}'.format(user['primaryEmail'],user['name']['fullName']))
+
+            nextPageToken = results.get('nextPageToken', {})
+            if not nextPageToken:
+                loopFlag = False
+                break
+
+    return gmailList
+
+
+
+def getcalendarIdList_():
     '''
     读人员邮箱地址
     '''
@@ -182,10 +235,10 @@ def generateEveryDayCalendarData(GmailList, paraTwoDaysAgoDate, paraYesterday):
     '''
     try:
         if GmailList:
-            store = file.Storage(TokenFile)  # 如果换了证书的json文件，需要是删除token.json
+            store = file.Storage(CalendarTokenFile)  # 如果换了证书的json文件，需要是删除token.json
             creds = store.get()
             if not creds or creds.invalid:
-                flow = client.flow_from_clientsecrets(CalendarAdministratorFile, SCOPES)
+                flow = client.flow_from_clientsecrets(CalendarAdministratorFile, CalendarSCOPES)
                 creds = tools.run_flow(flow, store)
             service = build('calendar', 'v3', http=creds.authorize(Http()))
             UTCStartTime = 'T15:00:00.000Z'  # UTC时间
@@ -439,7 +492,7 @@ def save_txt_to_disk(paraCalendarPath, paraYesterday, paraSaveList):
         if paraSaveList:
             if not os.path.exists(paraCalendarPath):
                 os.makedirs(paraCalendarPath)
-            with open(paraCalendarPath + paraYesterday + '.txt', "w", encoding="utf-8") as fo:
+            with open(paraCalendarPath + paraYesterday , "w", encoding="utf-8") as fo:
                 fo.write('\n'.join([' '.join(i) for i in paraSaveList]))
     except Exception as ex:
         logger.error("Call method save_txt_to_disk() error!")
@@ -524,9 +577,9 @@ def generateSummaryDate(paraAllDateList):
             allDataList = []  # 存放全部数据的List
 
             for everyDate in paraAllDateList:
-                if os.path.exists(CalendarPath + everyDate + '.txt'):
+                if os.path.exists(CalendarPath + everyDate):
                     currentDataList = []  # 存放当前遍历的数据List
-                    with open(CalendarPath + everyDate + '.txt', 'r', encoding='utf-8') as f:
+                    with open(CalendarPath + everyDate, 'r', encoding='utf-8') as f:
                         lines = f.readlines()
                         for line in lines:
                             if not line:  # 如果line是空
@@ -588,10 +641,10 @@ def SaveEveryDayCalendarDataUsetimeMin_timeMax(paraEventDateList, paraGmailList)
                 EventEndDate = paraEventDateList[i + 1]
                 Need_To_Save_List = []  # 保存某一天的文本数据
                 for calendarId in paraGmailList:
-                    store = file.Storage(TokenFile)  # 如果换了证书的json文件，需要是删除token.json
+                    store = file.Storage(CalendarTokenFile)  # 如果换了证书的json文件，需要是删除token.json
                     creds = store.get()
                     if not creds or creds.invalid:
-                        flow = client.flow_from_clientsecrets(CalendarAdministratorFile, SCOPES)
+                        flow = client.flow_from_clientsecrets(CalendarAdministratorFile, CalendarSCOPES)
                         creds = tools.run_flow(flow, store)
                     service = build('calendar', 'v3', http=creds.authorize(Http()))
                     events_result = service.events().list(calendarId=calendarId,
@@ -861,8 +914,8 @@ def MergeEventTimeData(paraEventDateList):
         AllColumnsList = [] #保存查分后全部80列的list
         SpecifiedCSVList = [] #保存差分后指定列event的list
         for everyDate in paraEventDateList:
-            if os.path.exists(CalendarPath + everyDate + EventTextName + '.txt'):
-                with open(CalendarPath + everyDate + EventTextName + '.txt', 'r', encoding='utf-8') as f:
+            if os.path.exists(CalendarPath + everyDate + EventTextName):
+                with open(CalendarPath + everyDate + EventTextName, 'r', encoding='utf-8') as f:
                     lines = f.readlines()
                     for line in lines:
                         if not line:  # 如果line是空
@@ -952,8 +1005,8 @@ def MergeCreateTimeData(paraHowManyDays):
                     CreateDateList.append(Yesterday)
 
             #如果存在summary.txt,则把summary.txt中的所有内容放到SummaryDataList中
-            if os.path.exists(CalendarPath + summary + '.txt'):
-                with open(CalendarPath + summary + '.txt', 'r', encoding='utf-8') as f:
+            if os.path.exists(CalendarPath + summary):
+                with open(CalendarPath + summary, 'r', encoding='utf-8') as f:
                     lines = f.readlines()
                     for line in lines:
                         if not line:  # 如果line是空
@@ -963,8 +1016,8 @@ def MergeCreateTimeData(paraHowManyDays):
                             SummaryDataList.append(row_list)
 
             # 如果存在allEvents.txt,不存在summary.txt,则把allEvents.txt中的所有内容放到SummaryDataList中
-            elif os.path.exists(CalendarPath + allEvents + '.txt'):
-                with open(CalendarPath + allEvents + '.txt', 'r', encoding='utf-8') as f:
+            elif os.path.exists(CalendarPath + allEvents):
+                with open(CalendarPath + allEvents, 'r', encoding='utf-8') as f:
                     lines = f.readlines()
                     for line in lines:
                         if not line:  # 如果line是空
@@ -976,9 +1029,9 @@ def MergeCreateTimeData(paraHowManyDays):
             #如果事件创建或者更新时间的List不是空
             if CreateDateList:
                 for everyDate in CreateDateList:
-                    if os.path.exists(CalendarPath + everyDate + CreateTextName + '.txt'):
+                    if os.path.exists(CalendarPath + everyDate + CreateTextName):
                         currentDataList = []  # 存放当前遍历的数据List
-                        with open(CalendarPath + everyDate + CreateTextName + '.txt', 'r', encoding='utf-8') as f:
+                        with open(CalendarPath + everyDate + CreateTextName, 'r', encoding='utf-8') as f:
                             lines = f.readlines()
                             for line in lines:
                                 if not line:  # 如果line是空
@@ -1022,9 +1075,11 @@ def read_dateConfig_file_set_parameter():
     读dateConfig.ini,获取事件的开始时间、事件的结束时间、创建或者更新时间在多少天内的数据(最多29天)、要保存的文件夹的路径
     '''
     global CalendarIdListFile
-    global TokenFile
+    global CalendarTokenFile
+    global AdminDirectoryAPITokenFile
     global CalendarAdministratorFile
-    global SCOPES
+    global CalendarSCOPES
+    global AdminDirectoryAPISCOPES
     global CalendarPath
     global EventTimeMin
     global EventTimeMax
@@ -1043,9 +1098,11 @@ def read_dateConfig_file_set_parameter():
             conf = configparser.ConfigParser()
             conf.read(os.path.join(os.path.dirname(__file__), "dateConfig.ini"), encoding="utf-8-sig")
             CalendarIdListFile = conf.get("CalendarIdListFile", "CalendarIdListFile")
-            TokenFile = conf.get("TokenFile", "TokenFile")
+            CalendarTokenFile = conf.get("CalendarTokenFile", "CalendarTokenFile")
+            AdminDirectoryAPITokenFile = conf.get("AdminDirectoryAPITokenFile", "AdminDirectoryAPITokenFile")
             CalendarAdministratorFile = conf.get("CalendarAdministratorFile", "CalendarAdministratorFile")
-            SCOPES = conf.get("SCOPES", "SCOPES")
+            CalendarSCOPES = conf.get("CalendarSCOPES", "CalendarSCOPES")
+            AdminDirectoryAPISCOPES = conf.get("AdminDirectoryAPISCOPES", "AdminDirectoryAPISCOPES")
             CalendarPath = conf.get("CalendarPath", "CalendarPath")
             EventTimeMin = conf.get("EventTimeMin", "EventTimeMin")
             EventTimeMax = conf.get("EventTimeMax", "EventTimeMax")
