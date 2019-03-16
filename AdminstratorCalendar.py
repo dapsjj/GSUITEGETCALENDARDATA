@@ -26,6 +26,10 @@ CalendarAdministratorFile = None
 CalendarSCOPES = None
 AdminDirectoryAPISCOPES = None
 CalendarPath = None
+NormalGmailAddress = None
+ExceptionGmailAddress = None
+NormalGmailFileName = None
+ExceptionGmailFileName = None
 EventTimeMin = None
 EventTimeMax = None
 HowManyDays = None
@@ -74,7 +78,7 @@ def removeBlank(MyString):
         raise ex
 
 
-def getcalendarIdList():
+def getcalendarIdList_1():
     gmailList = []
     creds = None
     if os.path.exists(AdminDirectoryAPITokenFile):
@@ -121,7 +125,7 @@ def getcalendarIdList():
 
 
 
-def getcalendarIdList_():
+def getcalendarIdList():
     '''
     读人员邮箱地址
     '''
@@ -241,32 +245,31 @@ def generateEveryDayCalendarData(GmailList, paraTwoDaysAgoDate, paraYesterday):
                 flow = client.flow_from_clientsecrets(CalendarAdministratorFile, CalendarSCOPES)
                 creds = tools.run_flow(flow, store)
             service = build('calendar', 'v3', http=creds.authorize(Http()))
-            UTCStartTime = 'T15:00:00.000Z'  # UTC时间
-            UTCEndTime = 'T14:59:59.999Z'  # UTC时间
 
             List_Root_And_Branch = []  # Root节点和Branch节点拼接到一起
-            # if not os.path.exists(CalendarPath + Yesterday):
-            #     os.makedirs(CalendarPath + Yesterday)
             if not os.path.exists(CalendarPath):
                 os.makedirs(CalendarPath)
-
+            if not os.path.exists(NormalGmailAddress):
+                os.makedirs(NormalGmailAddress)
+            if not os.path.exists(ExceptionGmailAddress):
+                os.makedirs(ExceptionGmailAddress)
+            NormalGmailAddressList = []  # 存放当前EventStartDate的正常人员的邮箱地址的列表
+            ExceptionGmailAddressList = []  # 存放当前EventStartDate的异常人员的邮箱地址的列表
             for calendarId in GmailList:
-                # events_result = service.events().list(calendarId=calendarId,
-                #                                     timeMin = Yesterday + StartTime,
-                #                                     timeMax = Yesterday + EndTime,
-                #                                     orderBy = 'updated', #orderBy允许的值['startTime', 'updated']
-                #                                     showHiddenInvitations = True,
-                #                                     showDeleted=True
-                #                                     ).execute()
-
-                events_result = service.events().list(calendarId=calendarId,
-                                                      orderBy='updated',  # orderBy允许的值['startTime', 'updated']
-                                                      showHiddenInvitations=True,
-                                                      showDeleted=True,
-                                                      singleEvents=True,
-                                                      updatedMin=paraTwoDaysAgoDate + UTCStartTime
-                                                      # 相当于日本时间昨天00:00:00.000
-                                                      ).execute()
+                try:
+                    events_result = service.events().list(calendarId=calendarId,
+                                                          orderBy='updated',  # orderBy允许的值['startTime', 'updated']
+                                                          showHiddenInvitations=True,
+                                                          showDeleted=True,
+                                                          singleEvents=True,
+                                                          updatedMin=paraTwoDaysAgoDate + UTCStartTime
+                                                          # 相当于日本时间昨天00:00:00.000
+                                                          ).execute()
+                    NormalGmailAddressList.append(calendarId)  # 没出异常就把这个人的邮箱添加到NormalGmailAddressList
+                except Exception as e:
+                    logger.info('calendarId:' + calendarId + 'has error')
+                    ExceptionGmailAddressList.append(calendarId)
+                    continue
 
                 RootNode_kind = removeBlank(str(events_result.get('kind', '_')))
                 RootNode_etag = removeBlank(str(events_result.get('etag', '_')))
@@ -468,6 +471,17 @@ def generateEveryDayCalendarData(GmailList, paraTwoDaysAgoDate, paraYesterday):
 
                         List_Root_And_Branch.append(Add_ele_to_BranchNodeItem)
 
+            # 保存正常人员邮箱
+            with open(NormalGmailAddress + str(paraYesterday).replace('-', '') + CreateTextName + NormalGmailFileName,
+                      "w", encoding="utf-8") as fo:
+                fo.write('\n'.join([i for i in NormalGmailAddressList]))
+
+            # 保存异常人员的邮箱
+            with open(ExceptionGmailAddress + str(paraYesterday).replace('-','') + CreateTextName + ExceptionGmailFileName,
+                      "w", encoding="utf-8") as fo:
+                fo.write('\n'.join([i for i in ExceptionGmailAddressList]))
+
+
             Need_To_Save_List = []  # 保存昨天(东京时间)00:00:00.000~23:59:59.999的数据
             for item in List_Root_And_Branch:
                 if (item[15] >= paraTwoDaysAgoDate + UTCStartTime and item[15] <= paraYesterday + UTCEndTime) \
@@ -634,27 +648,41 @@ def SaveEveryDayCalendarDataUsetimeMin_timeMax(paraEventDateList, paraGmailList)
         if len_EventDateList > 1 and paraGmailList:
             if not os.path.exists(CalendarPath):
                 os.makedirs(CalendarPath)
+            if not os.path.exists(NormalGmailAddress):
+                os.makedirs(NormalGmailAddress)
+            if not os.path.exists(ExceptionGmailAddress):
+                os.makedirs(ExceptionGmailAddress)
 
             for i in range(len_EventDateList - 1):
                 List_Root_And_Branch = []  # Root节点和Branch节点拼接到一起
                 EventStartDate = paraEventDateList[i]
                 EventEndDate = paraEventDateList[i + 1]
                 Need_To_Save_List = []  # 保存某一天的文本数据
+                NormalGmailAddressList = [] #存放当前EventStartDate的正常人员的邮箱地址的列表
+                ExceptionGmailAddressList = [] #存放当前EventStartDate的异常人员的邮箱地址的列表
                 for calendarId in paraGmailList:
+                    logger.info('calendarId:'+ calendarId)
                     store = file.Storage(CalendarTokenFile)  # 如果换了证书的json文件，需要是删除token.json
                     creds = store.get()
                     if not creds or creds.invalid:
                         flow = client.flow_from_clientsecrets(CalendarAdministratorFile, CalendarSCOPES)
                         creds = tools.run_flow(flow, store)
                     service = build('calendar', 'v3', http=creds.authorize(Http()))
-                    events_result = service.events().list(calendarId=calendarId,
-                                                          orderBy='updated',  # orderBy允许的值['startTime', 'updated']
-                                                          showHiddenInvitations=True,
-                                                          showDeleted=True,
-                                                          singleEvents=True, #重复事件以单独的事件的形式返回
-                                                          timeMin=EventStartDate + TokyoStartTime,
-                                                          timeMax=EventEndDate + TokyoStartTime
-                                                          ).execute()
+                    try:
+                        events_result = service.events().list(calendarId=calendarId,
+                                                              orderBy='updated',  # orderBy允许的值['startTime', 'updated']
+                                                              showHiddenInvitations=True,
+                                                              showDeleted=True,
+                                                              singleEvents=True, #重复事件以单独的事件的形式返回
+                                                              timeMin=EventStartDate + TokyoStartTime,
+                                                              timeMax=EventEndDate + TokyoStartTime
+                                                              ).execute()
+                        NormalGmailAddressList.append(calendarId) #没出异常就把这个人的邮箱添加到NormalGmailAddressList
+
+                    except Exception as e:
+                        logger.info('calendarId:' + calendarId + 'has error')
+                        ExceptionGmailAddressList.append(calendarId)
+                        continue
 
                     RootNode_kind = removeBlank(str(events_result.get('kind', '_')))
                     RootNode_etag = removeBlank(str(events_result.get('etag', '_')))
@@ -874,8 +902,15 @@ def SaveEveryDayCalendarDataUsetimeMin_timeMax(paraEventDateList, paraGmailList)
                             temp_eventEndDate >= EventStartDate and temp_eventEndDate < EventEndDate):  # 如果事件的开始和结束时间超过指定的开始和结束时间,就删除.连续事件如果用temp_eventEndDate <= EventEndDate，则在结束的时候会连续出现2次，因此改成temp_eventEndDate < EventEndDate
                         Need_To_Save_List.append(item)
                 if Need_To_Save_List:
-                    # print(EventStartDate, EventEndDate)
                     save_txt_to_disk(CalendarPath, EventStartDate + EventTextName, Need_To_Save_List)
+
+                #保存正常人员邮箱
+                with open(NormalGmailAddress + str(EventStartDate).replace('-','') + EventTextName + NormalGmailFileName, "w", encoding="utf-8") as fo:
+                    fo.write('\n'.join([i for i in NormalGmailAddressList]))
+
+                #保存异常人员的邮箱
+                with open(ExceptionGmailAddress + str(EventStartDate).replace('-','') + EventTextName + ExceptionGmailFileName, "w", encoding="utf-8") as fo:
+                    fo.write('\n'.join([i for i in ExceptionGmailAddressList]))
 
     except Exception as ex:
         logger.error("Call method SaveEveryDayCalendarDataUsetimeMin_timeMax() error!")
@@ -967,14 +1002,16 @@ def MergeEventTimeData(paraEventDateList):
 
         # 保存全部80列差分后的events数据到CSV
         AllColumnsList = [item[:-1] + [removeBlank(item[-1])] for item in AllColumnsList] #处理最后一列的换行符
-        save_data_to_csv(CalendarPath, allEvents, AllColumnsList)
+        # save_data_to_csv(CalendarPath, allEvents, AllColumnsList)
 
         #保存指定列的数据到CSV
+        '''
         with open(CalendarPath + paraEventDateList[0] + ' to ' + paraEventDateList[-2] + '_SpecifiedColumns.csv', "w", newline='',encoding="utf-8") as fo:
             title = [['calendarId', 'summary', 'eventStartDate', 'eventStartTime', 'eventEndDate', 'eventEndtTime', 'visibility']]
             writer = csv.writer(fo)
             writer.writerows(title)
             writer.writerows(SpecifiedCSVList)
+        '''
 
         #保存全部80列到txt,这部分的数据是查分后的
         save_txt_to_disk(CalendarPath, allEvents, AllColumnsList)
@@ -1081,6 +1118,10 @@ def read_dateConfig_file_set_parameter():
     global CalendarSCOPES
     global AdminDirectoryAPISCOPES
     global CalendarPath
+    global NormalGmailAddress
+    global ExceptionGmailAddress
+    global NormalGmailFileName
+    global ExceptionGmailFileName
     global EventTimeMin
     global EventTimeMax
     global HowManyDays
@@ -1104,6 +1145,10 @@ def read_dateConfig_file_set_parameter():
             CalendarSCOPES = conf.get("CalendarSCOPES", "CalendarSCOPES")
             AdminDirectoryAPISCOPES = conf.get("AdminDirectoryAPISCOPES", "AdminDirectoryAPISCOPES")
             CalendarPath = conf.get("CalendarPath", "CalendarPath")
+            NormalGmailAddress = conf.get("NormalGmailAddress", "NormalGmailAddress")
+            ExceptionGmailAddress = conf.get("ExceptionGmailAddress", "ExceptionGmailAddress")
+            NormalGmailFileName = conf.get("NormalGmailFileName", "NormalGmailFileName")
+            ExceptionGmailFileName = conf.get("ExceptionGmailFileName", "ExceptionGmailFileName")
             EventTimeMin = conf.get("EventTimeMin", "EventTimeMin")
             EventTimeMax = conf.get("EventTimeMax", "EventTimeMax")
             HowManyDays = conf.get("HowManyDays", "HowManyDays")
