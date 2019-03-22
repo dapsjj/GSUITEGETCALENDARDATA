@@ -52,11 +52,11 @@ def write_log():
     logger = logging.getLogger()
     now_date = datetime.datetime.now().strftime('%Y%m%d')
     log_file = now_date + ".log"  # 文件日志
-    if not os.path.exists(os.path.join(os.path.dirname(__file__))):  # python文件同级别创建log文件夹
-        os.makedirs(os.path.join(os.path.dirname(__file__)))
+    if not os.path.exists(os.path.join(os.path.dirname(__file__)) + os.sep + 'log'):  # python文件同级别创建log文件夹
+        os.makedirs(os.path.join(os.path.dirname(__file__)) + os.sep + 'log')
     # 指定logger输出格式
     formatter = logging.Formatter('%(asctime)s %(levelname)s line:%(lineno)s %(message)s')
-    file_handler = logging.FileHandler(os.path.join(os.path.dirname(__file__)) + os.sep + log_file, mode='a', encoding='utf-8')
+    file_handler = logging.FileHandler(os.path.join(os.path.dirname(__file__)) + os.sep + 'log' + os.sep + log_file, mode='a', encoding='utf-8')
     file_handler.setFormatter(formatter)  # 可以通过setFormatter指定输出格式
     # 为logger添加的日志处理器，可以自定义日志处理器让其输出到其他地方
     logger.addHandler(file_handler)
@@ -904,11 +904,11 @@ def SaveEveryDayCalendarDataUsetimeMin_timeMax(paraEventDateList, paraGmailList)
                     save_txt_to_disk(CalendarPath, EventStartDate + EventTextName, Need_To_Save_List)
 
                 #保存正常人员邮箱
-                with open(NormalGmailAddress + str(EventStartDate).replace('-','') + EventTextName + NormalGmailFileName, "w", encoding="utf-8") as fo:
+                with open(NormalGmailAddress + str(EventStartDate).replace('-','') + os.sep + EventTextName + NormalGmailFileName, "w", encoding="utf-8") as fo:
                     fo.write('\n'.join([i for i in NormalGmailAddressList]))
 
                 #保存异常人员的邮箱
-                with open(AbnormalGmailAddress + str(EventStartDate).replace('-','') + EventTextName + AbnormalGmailFileName, "w", encoding="utf-8") as fo:
+                with open(AbnormalGmailAddress + str(EventStartDate).replace('-','') + os.sep + EventTextName + AbnormalGmailFileName, "w", encoding="utf-8") as fo:
                     fo.write('\n'.join([i for i in AbnormalGmailAddressList]))
 
     except Exception as ex:
@@ -931,7 +931,8 @@ def SaveEveryDayCalendarDataUseCreateTime(paraManyDays, paraGmailList):
                     Yesterday = datetime.datetime.now() - datetime.timedelta(days=x - 1)  # 昨天日期
                     Yesterday = Yesterday.strftime('%Y-%m-%d')
                     Root_And_Branch_To_Txt = generateEveryDayCalendarData(paraGmailList, TwoDaysAgoDate, Yesterday)
-                    save_txt_to_disk(CalendarPath, Yesterday + CreateTextName, Root_And_Branch_To_Txt)
+                    # save_txt_to_disk(CalendarPath, Yesterday + CreateTextName, Root_And_Branch_To_Txt)
+                    save_txt_to_disk(CalendarPath, CreateTextName, Root_And_Branch_To_Txt)
     except Exception as ex:
         logger.error("Call method SaveEveryDayCalendarDataUseCreateTime() error!")
         raise ex
@@ -1173,14 +1174,14 @@ if __name__ == '__main__':
     start = time.time()
     logger.info("Program start,now time is:" + str(time_start))
     read_dateConfig_file_set_parameter()
-    # gmailList = getcalendarIdList()
-    gmailList = getcalendarIdList_from_txt()
+    gmailList = getcalendarIdList()
+    # gmailList = getcalendarIdList_from_txt()
     Event_Date_List = getEveryDay(EventTimeMin, EventTimeMax)  #获取事件的开始到结束时间的List
-    SaveEveryDayCalendarDataUsetimeMin_timeMax(Event_Date_List, gmailList) #保存事件的开始和结束时间对应的数据
+    # SaveEveryDayCalendarDataUsetimeMin_timeMax(Event_Date_List, gmailList) #保存事件的开始和结束时间对应的数据
     SaveEveryDayCalendarDataUseCreateTime(HowManyDays, gmailList) #保存创建事件的时间在某段范围内的数据
-    MergeEventTimeData(Event_Date_List) #先合并事件开始时间和结束时间对应的数据
+    # MergeEventTimeData(Event_Date_List) #先合并事件开始时间和结束时间对应的数据
     # 保存差分数据
-    MergeCreateTimeData(HowManyDays) #再合并创建时间(最多29天)在某段时间内的数据
+    # MergeCreateTimeData(HowManyDays) #再合并创建时间(最多29天)在某段时间内的数据
     time_end = datetime.datetime.now()
     end = time.time()
     logger.info("Program end,now time is:" + str(time_end))
